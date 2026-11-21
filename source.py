@@ -25,60 +25,17 @@
 # *What 3 data sources have you identified for this project?*
 # *How are you going to relate these datasets?*
 # 📝 <!-- Answer Below -->
-# Steam Games Dataset (games.csv) – Contains information about games including estimated owners, price, reviews, Metacritic scores, peak concurrent players, playtime, genres, and release dates.
-# Backloggd Games Dataset (backloggd_games.csv) – Contains information about games including ratings, platforms, genres, plays, backlogs, wishlists, and reviews.
-# Video Games Dataset (video_games.csv) – Contains information about games including different play styles, playtime, and console.
 
 # ## Approach and Analysis
 # *What is your approach to answering your project question?*
 # *How will you use the identified data to answer your project question?*
 # 📝 <!-- Start Discussing the project here; you can add as many code cells as you need -->
 
-# In[13]:
-
-
-# Start your code here
-# Import the libraries
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-
-
-# In[14]:
-
-
-# Load the datasets
-steam = pd.read_csv("games.csv")
-backloggd = pd.read_csv("backloggd_games.csv")
-games = pd.read_csv("video_games.csv")
-
-
-# In[16]:
-
-
-# Display the first 5 rows
-steam.head()
-
-
-# In[17]:
-
-
-# Display the first 5 rows
-backloggd.head()
-
-
-# In[18]:
-
-
-# Display the first 5 rows
-games.head()
-
-
 # ## Resources and References
 # *What resources and references have you used for this project?*
 # 📝 <!-- Answer Below -->
 
-# In[22]:
+# In[2]:
 
 
 # ⚠️ Make sure you run this cell at the end of your notebook before every submission!
