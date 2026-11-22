@@ -23,7 +23,6 @@
 # - How does GTA V perform on different consoles, compared with other well-known games?
 # - How does GTA VI perform, where data is available at release?
 # - For games with historical metadata from Steam, do certain genres, % positive reviews and prices correlate to them being owned on PC?
-# - Does owning on PC correlate to owning the game on consoles?
 # - How similar are the most popular games on Xbox in the sample compared to the official Xbox chart in the USA?
 # - Which games are popular in monthly download charts on PS5 and PS4? How do rankings differ in the USA/Canada and EU?
 # - Do newer genres of games, as given by RAWG, and their ratings correlate to popularity on consoles? 
@@ -63,7 +62,7 @@
 
 # ### Setup
 
-# In[19]:
+# In[1]:
 
 
 from pathlib import Path
@@ -276,7 +275,7 @@ steamspy_df.head()
 
 # ### Source 5: Official Xbox Most Played chart
 
-# In[20]:
+# In[7]:
 
 
 # Source 5 — official US Xbox Most Played rankings (no API key needed)
@@ -564,7 +563,7 @@ print("Exact-name searches attempted up to:", len(rawg_titles))
 
 # ### Import verification
 
-# In[21]:
+# In[10]:
 
 
 source_status = pd.DataFrame([
@@ -597,7 +596,7 @@ import_errors.head(20)
 # 
 # Final comparisons will be made between official rankings on Xbox, and historical player activity. After checking editions, download data from Playstation will be grouped by region, generation and month. Data from Steam will be merged using appid. Genre, ratings and release dates from RAWG will be added so that cross platform comparisons can be made. As popularity is measured differently in each source, popularity (ownership, downloads, player activity and rankings) will be kept separate. Only data available at the time of observation will be used in historical predictions.
 
-# In[ ]:
+# In[11]:
 
 
 # Join each console chart to its own platform catalog and remove ambiguous catalog IDs.
@@ -607,14 +606,24 @@ unique_catalog = (console_catalog.dropna(subset=keys).drop_duplicates()
 console_data = console_charts.merge(unique_catalog[keys + ["release_date"]],
                                    on=keys, how="left", validate="many_to_one")
 console_data["chart_date"] = pd.to_datetime(console_data["chart_date"], errors="coerce")
-console_data["release_date"] = pd.to_datetime(console_data["release_date"], errors="coerce")
-console_data["days_since_release"] = (console_data["chart_date"] -
-                                      console_data["release_date"]).dt.days
+# Preserve the original string and explicitly mask the source's year-9998
+# placeholder dates. Some pandas versions can parse 9998 as a valid date,
+# which otherwise inflates pre-release counts and hides unusable dates.
+console_data["release_date_raw"] = console_data["release_date"].astype("string").str.strip()
+source_dates = console_data["release_date_raw"]
+placeholder_dates = source_dates.str.fullmatch(r"9998-\d{2}-\d{2}", na=False)
+console_data["release_date"] = pd.to_datetime(
+    source_dates.mask(placeholder_dates), format="%Y-%m-%d", errors="coerce"
+)
+console_data["unusable_release_date"] = console_data["release_date"].isna()
+console_data["days_since_release"] = (
+    console_data["chart_date"] - console_data["release_date"]
+).dt.days
 console_data["title_key"] = console_data["title"].map(normalize_title)
 console_data.head()
 
 
-# In[ ]:
+# In[12]:
 
 
 # Title match candidates for later verification.
@@ -638,7 +647,7 @@ print("Steam match candidates:", len(steam_match_candidates))
 console_match_candidates.head()
 
 
-# In[24]:
+# In[13]:
 
 
 # Outer merge retains modern/current Steam titles absent in the 2019 snapshot.
@@ -653,7 +662,7 @@ comparison_df[["appid", "name", "owners", "spy_owners", "current_players"]].head
 
 # ### Candidate matches for external sources
 
-# In[15]:
+# In[14]:
 
 
 xbox_match_candidates = xbox_official.assign(title_key=xbox_official["title"].map(normalize_title)).merge(
@@ -674,6 +683,375 @@ print("Console title candidates with RAWG metadata:", console_rawg_candidates["r
 print("Steam title candidates with RAWG metadata:", steam_rawg_candidates["rawg_id"].notna().sum())
 
 
+# ### 1. Exploratory Data Analysis (EDA)
+# 
+# #### 1.1 Source coverage, statistical summaries, and initial issues
+
+# In[15]:
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from IPython.display import display
+
+sns.set_theme(style="whitegrid", context="notebook")
+
+# Work on copies; keep the original checkpoint's raw data and joins available.
+eda_console = console_data.copy()
+# Reconstruct both flags from source strings so partial runs and pandas
+# versions cannot interpret the year-9998 placeholders as real dates.
+eda_dates_raw = eda_console["release_date_raw"].astype("string").str.strip()
+eda_placeholder = eda_dates_raw.str.fullmatch(r"9998-\d{2}-\d{2}", na=False)
+eda_console["release_date"] = pd.to_datetime(
+    eda_dates_raw.mask(eda_placeholder), format="%Y-%m-%d", errors="coerce"
+)
+eda_console["unusable_release_date"] = eda_console["release_date"].isna()
+eda_console["days_since_release"] = (
+    eda_console["chart_date"] - eda_console["release_date"]
+).dt.days
+eda_console["rank"] = pd.to_numeric(eda_console["rank"], errors="coerce")
+eda_console["players"] = pd.to_numeric(eda_console["players"], errors="coerce")
+eda_console["percentage"] = pd.to_numeric(eda_console["percentage"], errors="coerce")
+eda_console["pre_release_flag"] = eda_console["days_since_release"].lt(0).fillna(False)
+
+console_key = ["platform", "chart_date", "title_id"]
+console_audit = eda_console.groupby("platform").agg(
+    observations=("rank", "size"),
+    games=("title_id", "nunique"),
+    chart_dates=("chart_date", "nunique"),
+    unusable_release_dates=("unusable_release_date", "sum"),
+    prerelease_observations=("pre_release_flag", "sum"),
+    median_sampled_pct=("percentage", "median"),
+    max_sampled_pct=("percentage", "max"),
+)
+# All year-9998 placeholders must be categorized as unusable, not pre-release.
+assert not eda_console.loc[eda_placeholder, "pre_release_flag"].any()
+assert eda_console.loc[eda_placeholder, "unusable_release_date"].all()
+print("Console observation-key duplicates:", int(eda_console.duplicated(console_key).sum()))
+print("Fully duplicated console rows:", int(eda_console.duplicated().sum()))
+print("Console rows missing any required analysis metric:", int(
+    eda_console[["rank", "players", "percentage", "chart_date", "title_id", "platform"]]
+    .isna().any(axis=1).sum()))
+print("Negative players / ranks <= 0 / percentages outside (0, 100]:",
+      int((eda_console["players"] < 0).sum()),
+      int((eda_console["rank"] <= 0).sum()),
+      int(((eda_console["percentage"] <= 0) | (eda_console["percentage"] > 100)).sum()))
+print("Console observations by platform (two release-date quality flags):")
+display(console_audit.round(4))
+print("Sampled activity percentiles (percent, not percentage fractions):")
+display(eda_console.groupby("platform")["percentage"]
+        .quantile([0.25, 0.50, 0.75, 0.95, 0.99])
+        .unstack(level=-1).round(4))
+print("Data types:")
+display(eda_console[["platform", "chart_date", "title_id", "rank", "players",
+                     "percentage", "release_date", "days_since_release"]].dtypes.to_frame("dtype"))
+
+
+# **Summary of observations in data** 
+# 
+# There are 126749 observations in total (65670 for Xbox and 61079 for Playstation). There are no exact duplicate rows within the data and therefore no duplicate rows for 'platform', 'date' and ‘title_id’. There is severe skewness. The median number of players sampling the title is very low at 0.0014% (Xbox) and 0.0010% (Playstation). However, there are very large maximum values of 35.9142% (Xbox), and 39.3005% (Playstation).
+# 
+# **Missing and anomalous data** 
+# 
+# Within the joined data, 2189 rows are missing valid release dates (454 for Xbox, 1735 for Playstation). This means that trend analysis can be conducted on these rows, but it will not be possible to carry out analysis on how old the titles were at launch. 676 observations have negative values for days since release (-ve values in column days_since_release) (282 for Xbox, 394 for Playstation). This indicates inconsistencies in meta-data, or listing/playing the game before launch, or anomalies from particular sources. It cannot be assumed that these observations are pre-launch gameplay. For example, titles such as Grand Theft Auto VI are present on Xbox in the data before the release date listed. These should be noted and removed from the data when considering ages of titles at launch. Within the downloaded files, there are no missing rank, sampled player numbers, or percentage of players. Similarly, there are no invalid percentages or negative player numbers. This was checked as shown above.
+
+# In[16]:
+
+
+# Diagnose outliers and monotonic feature relationships without removing popular games.
+outlier_rows = []
+association_rows = []
+for platform, group in eda_console.groupby("platform"):
+    quartile_1 = group["percentage"].quantile(0.25)
+    quartile_3 = group["percentage"].quantile(0.75)
+    upper_fence = quartile_3 + 1.5 * (quartile_3 - quartile_1)
+    outlier_rows.append({
+        "platform": platform, "Q1_pct": quartile_1, "Q3_pct": quartile_3,
+        "upper_iqr_fence_pct": upper_fence,
+        "above_upper_fence": int(group["percentage"].gt(upper_fence).sum()),
+    })
+    valid_age = group.loc[group["days_since_release"].ge(0)]
+    association_rows.append({
+        "platform": platform,
+        "spearman_rank_vs_percentage": group["rank"].corr(group["percentage"], method="spearman"),
+        "spearman_players_vs_percentage": group["players"].corr(group["percentage"], method="spearman"),
+        "spearman_release_age_vs_percentage": valid_age["days_since_release"].corr(
+            valid_age["percentage"], method="spearman"),
+    })
+print("IQR outlier audit (no upper-fence rows removed):")
+display(pd.DataFrame(outlier_rows).round(4))
+print("Within-platform Spearman associations (descriptive, not causal):")
+display(pd.DataFrame(association_rows).round(3))
+
+
+# **Outliers and correlations**
+# 
+# Using the 1.5IQR method, many data points are identified as outliers in the upper tail of the data (10,729 from Xbox, 10,175 from PlayStation). However, this does not indicate any erroneous data since the upper tails have been formed by popular games. These outliers are therefore noted, but not removed. Within each platform there is a strong negative relationship between rank and sample % (rS ~ -0.98) as rank is based on popularity. There is also strong positive correlation between sample % and player count (r ~ +0.99). This is not an independent causal relationship. A weak positive relationship exists between sample % and release age (Xbox r ~ +0.12, PlayStation r ~ +0.09). Therefore, the assumption that newer games will be more popular is not entirely valid. As this data set was obtained through repeated observations, it is impossible to determine the precise effect of release age on popularity from only this information.
+
+# In[17]:
+
+
+# Steam historical dataset is a different population and a different time period.
+eda_steam = steam_df.copy()
+owner_limits = eda_steam["owners"].astype("string").str.extract(r"^(\d+)-(\d+)$")
+eda_steam["owner_lower"] = pd.to_numeric(owner_limits[0], errors="coerce")
+eda_steam["owner_upper"] = pd.to_numeric(owner_limits[1], errors="coerce")
+eda_steam["owner_midpoint"] = (eda_steam["owner_lower"] + eda_steam["owner_upper"]) / 2
+eda_steam["log10_owner_midpoint"] = np.log10(eda_steam["owner_midpoint"].where(
+    eda_steam["owner_midpoint"] > 0))
+eda_steam["total_reviews"] = (pd.to_numeric(eda_steam["positive_ratings"], errors="coerce")
+                              + pd.to_numeric(eda_steam["negative_ratings"], errors="coerce"))
+eda_steam["positive_review_share"] = (
+    pd.to_numeric(eda_steam["positive_ratings"], errors="coerce")
+    / eda_steam["total_reviews"].replace(0, np.nan)
+)
+print("Steam rows:", len(eda_steam), "unique app IDs:", eda_steam["appid"].nunique(),
+      "duplicate app IDs:", int(eda_steam["appid"].duplicated().sum()))
+print("Unparseable owner ranges:", int(eda_steam["owner_midpoint"].isna().sum()))
+print("Zero-review games:", int(eda_steam["total_reviews"].eq(0).sum()))
+print("Missing developer/publisher:", int(eda_steam["developer"].isna().sum()),
+      int(eda_steam["publisher"].isna().sum()))
+display(eda_steam[["price", "owner_midpoint", "positive_review_share",
+                   "average_playtime"]].describe(percentiles=[0.5, 0.9, 0.99]).round(3))
+
+
+# **Steam**
+# 
+# Each entry corresponds to one app in the Steam Store. For owners, we have a range rather than exact numbers. We can approximate a representative number from the middle of the range. Price is taken directly from the Steam Store. Reviews are proportions of positive reviews in total. Play time is based on historical game data. Note that these values cannot be directly compared to current console player numbers. If there was no information on a game’s developers/publishers from Steam, then an unknown value has been used.
+
+# #### 1.2 Visualization 1 — Distribution of sampled console activity
+
+# In[18]:
+
+
+distribution_data = eda_console.loc[eda_console["percentage"].gt(0),
+                                    ["platform", "percentage"]].copy()
+distribution_data["log10_sampled_pct"] = np.log10(distribution_data["percentage"])
+fig, ax = plt.subplots(figsize=(10, 5))
+sns.histplot(data=distribution_data, x="log10_sampled_pct", hue="platform",
+             bins=55, element="step", stat="density", common_norm=False,
+             alpha=0.3, ax=ax)
+ax.set(title="Console game-week activity: highly skewed distribution",
+       xlabel="log10(sampled player activity, percent)",
+       ylabel="Density of game-week observations")
+plt.tight_layout()
+plt.show()
+
+
+# #### 1.3 Visualization 2 — Matched popular titles on the last snapshot
+
+# In[19]:
+
+
+last_date = eda_console["chart_date"].max()
+latest_console = eda_console.loc[eda_console["chart_date"].eq(last_date)].copy()
+# One record per title key and platform is required for an unambiguous display join.
+unique_latest = latest_console.dropna(subset=["title_key"]).drop_duplicates(
+    ["platform", "title_key"], keep=False)
+shared_keys = (unique_latest.groupby("title_key")["platform"].nunique()
+               .loc[lambda s: s.eq(2)].index)
+plot_latest = unique_latest.loc[unique_latest["title_key"].isin(shared_keys)].copy()
+top_shared_keys = (plot_latest.groupby("title_key")["percentage"].mean()
+                   .nlargest(10).index)
+plot_latest = plot_latest.loc[plot_latest["title_key"].isin(top_shared_keys)]
+plot_latest["game"] = plot_latest["title_key"].map(
+    plot_latest.groupby("title_key")["title"].first())
+order = (plot_latest.groupby("game")["percentage"].mean().sort_values(ascending=False).index)
+fig, ax = plt.subplots(figsize=(10, 6))
+sns.barplot(data=plot_latest, x="percentage", y="game", hue="platform",
+            order=order, errorbar=None, ax=ax)
+ax.set(title=f"Top shared game names on {last_date:%Y-%m-%d}",
+       xlabel="Sampled players active in game (%)", ylabel="")
+plt.tight_layout()
+plt.show()
+print("Matched exact normalized names in the last observation:", len(shared_keys))
+
+
+# #### 1.4 Visualization 3 — GTA V versus GTA VI over time
+
+# In[20]:
+
+
+gta_names = ["Grand Theft Auto V", "Grand Theft Auto VI"]
+gta_plot = eda_console.loc[eda_console["title"].isin(gta_names)].copy()
+gta_plot = gta_plot.loc[~(gta_plot["title"].eq("Grand Theft Auto VI")
+                          & gta_plot["pre_release_flag"])].copy()
+fig, ax = plt.subplots(figsize=(11, 5))
+styles = {("Xbox", "Grand Theft Auto V"): ("-", "o"),
+          ("PlayStation", "Grand Theft Auto V"): ("-", "s"),
+          ("Xbox", "Grand Theft Auto VI"): ("--", "o"),
+          ("PlayStation", "Grand Theft Auto VI"): ("--", "s")}
+for (platform, title), group in gta_plot.groupby(["platform", "title"]):
+    style, marker = styles[(platform, title)]
+    ordered = group.sort_values("chart_date")
+    ax.plot(ordered["chart_date"], ordered["percentage"],
+            linestyle=style, marker=marker, label=f"{platform} | {title}")
+ax.set(title="GTA sampled activity through November 20 (pre-release flags excluded)",
+       xlabel="Chart observation date", ylabel="Sampled player activity (%)")
+ax.tick_params(axis="x", rotation=30)
+ax.legend(fontsize=8, ncol=2)
+plt.tight_layout()
+plt.show()
+print("GTA VI chart rows excluded as pre-release:",
+      int((eda_console["title"].eq("Grand Theft Auto VI") & eda_console["pre_release_flag"]).sum()))
+print("GTA latest observation:")
+display(latest_console.loc[latest_console["title"].isin(gta_names),
+                           ["platform", "title", "rank", "percentage"]]
+        .sort_values(["title", "platform"]))
+
+
+# #### 1.5 Visualization 4 — Historical PC correlations
+
+# In[21]:
+
+
+steam_features = ["log10_owner_midpoint", "price", "positive_review_share",
+                  "average_playtime"]
+steam_corr = eda_steam[steam_features].corr(method="spearman")
+fig, ax = plt.subplots(figsize=(7.5, 5.5))
+sns.heatmap(steam_corr, annot=True, fmt=".2f", cmap="vlag", center=0,
+            vmin=-1, vmax=1, square=True, ax=ax)
+ax.set_title("Historical Steam: Spearman feature associations")
+plt.tight_layout()
+plt.show()
+display(steam_corr.round(3))
+
+
+# #### 1.6 Visualization 5 — Steam store price and ownership-proxy scatter
+
+# In[22]:
+
+
+steam_scatter = eda_steam.dropna(subset=["price", "log10_owner_midpoint"])
+price_display_limit = float(steam_scatter["price"].quantile(0.99))
+plot_steam = steam_scatter.loc[steam_scatter["price"].le(price_display_limit)]
+if len(plot_steam) > 6000:
+    plot_steam = plot_steam.sample(n=6000, random_state=4063)
+fig, ax = plt.subplots(figsize=(9.5, 5))
+ax.scatter(plot_steam["price"], plot_steam["log10_owner_midpoint"],
+           s=9, alpha=0.18)
+ax.set(title="Historical Steam: price versus estimated ownership range midpoint",
+       xlabel="Historical Steam price (GBP; <= 99th percentile shown)",
+       ylabel="log10(ownership-range midpoint)")
+plt.tight_layout()
+plt.show()
+print("Full-data Steam Spearman(price, log10 owner midpoint):",
+      round(float(steam_corr.loc["price", "log10_owner_midpoint"]), 3))
+
+
+# #### 1.7 Contextual ranking sources and observable limitations
+# 
+# Only 50 titles are present in the official Xbox ranking (retrieved 22nd November) meaning that it cannot be directly compared to the archive (last chart retrieved 20th November). In the PlayStation Blog download rankings there are 300 title region genre month positions recorded between August – October. As such, the download rankings have measured a different event to the sampled live player data. Matches from Checkpoint 1 were not confirmed, and there is no official ground truth provided. There are also issues with bias within samples, overlapping time periods, unclear differentiations between versions of games and incomplete information from RAWG.
+
+# ### 2. Data cleaning and transformation
+
+# In[23]:
+
+
+# Clean console observations without treating missing metadata as no popularity.
+console_clean = console_data.copy()
+rows_before = len(console_clean)
+console_clean["chart_date"] = pd.to_datetime(console_clean["chart_date"], errors="coerce")
+# Apply the same explicit placeholder rule as EDA. This avoids pandas
+# version differences when the release-date audit is recomputed here.
+clean_dates_raw = console_clean["release_date_raw"].astype("string").str.strip()
+clean_placeholder = clean_dates_raw.str.fullmatch(r"9998-\d{2}-\d{2}", na=False)
+console_clean["release_date"] = pd.to_datetime(
+    clean_dates_raw.mask(clean_placeholder), format="%Y-%m-%d", errors="coerce"
+)
+console_clean["unusable_release_date"] = console_clean["release_date"].isna()
+console_clean["rank"] = pd.to_numeric(console_clean["rank"], errors="coerce")
+console_clean["players"] = pd.to_numeric(console_clean["players"], errors="coerce")
+console_clean["percentage"] = pd.to_numeric(console_clean["percentage"], errors="coerce")
+
+# Only same-platform/snapshot/ID duplicates can legitimately be deduplicated.
+console_dup_count = int(console_clean.duplicated(["platform", "chart_date", "title_id"]).sum())
+console_clean = console_clean.drop_duplicates(["platform", "chart_date", "title_id"], keep="first")
+invalid_console = (console_clean[["platform", "chart_date", "title_id", "rank",
+                                   "players", "percentage"]].isna().any(axis=1)
+                   | console_clean["rank"].le(0) | console_clean["players"].lt(0)
+                   | console_clean["percentage"].le(0)
+                   | console_clean["percentage"].gt(100))
+invalid_console_count = int(invalid_console.sum())
+console_clean = console_clean.loc[~invalid_console].copy()
+console_clean["rank"] = console_clean["rank"].astype("int64")
+console_clean["players"] = console_clean["players"].astype("int64")
+console_clean["percentage"] = console_clean["percentage"].astype("float64")
+console_clean["release_age_days"] = (
+    console_clean["chart_date"] - console_clean["release_date"]).dt.days
+console_clean["pre_release_flag"] = console_clean["release_age_days"].lt(0).fillna(False)
+console_clean["valid_release_age_days"] = console_clean["release_age_days"].where(
+    console_clean["release_age_days"].ge(0))
+console_clean["log10_sampled_pct"] = np.log10(console_clean["percentage"])
+console_clean = console_clean.sort_values(["platform", "chart_date", "rank"]).reset_index(drop=True)
+
+# Steam: parse bracket ranges; positive review proportion undefined for 0 reviews.
+steam_clean = steam_df.copy().drop_duplicates(subset=["appid"]).copy()
+steam_clean["appid"] = pd.to_numeric(steam_clean["appid"], errors="coerce").astype("Int64")
+steam_clean["release_date"] = pd.to_datetime(steam_clean["release_date"], errors="coerce")
+steam_clean["price"] = pd.to_numeric(steam_clean["price"], errors="coerce")
+owner_bounds = steam_clean["owners"].astype("string").str.extract(r"^(\d+)-(\d+)$")
+steam_clean["owners_low"] = pd.to_numeric(owner_bounds[0], errors="coerce")
+steam_clean["owners_high"] = pd.to_numeric(owner_bounds[1], errors="coerce")
+steam_clean["owners_midpoint"] = (steam_clean["owners_low"] + steam_clean["owners_high"]) / 2
+steam_clean["log10_owners_midpoint"] = np.log10(
+    steam_clean["owners_midpoint"].where(steam_clean["owners_midpoint"].gt(0)))
+steam_clean["reviews_total"] = (pd.to_numeric(steam_clean["positive_ratings"], errors="coerce")
+                                + pd.to_numeric(steam_clean["negative_ratings"], errors="coerce"))
+steam_clean["positive_review_share"] = (
+    pd.to_numeric(steam_clean["positive_ratings"], errors="coerce")
+    / steam_clean["reviews_total"].replace(0, np.nan))
+steam_clean["release_year"] = steam_clean["release_date"].dt.year.astype("Int64")
+
+cleaning_report = pd.DataFrame([
+    {"issue": "Duplicate console observation keys", "before": console_dup_count,
+     "action": "Remove only repeated platform/date/title IDs", "removed": console_dup_count},
+    {"issue": "Invalid/absent core console metrics", "before": invalid_console_count,
+     "action": "Exclude from console analysis", "removed": invalid_console_count},
+    {"issue": "Unusable release dates", "before": int(console_clean["unusable_release_date"].sum()),
+     "action": "Retain activity; exclude from release-age analysis", "removed": 0},
+    {"issue": "Pre-release observations", "before": int(console_clean["pre_release_flag"].sum()),
+     "action": "Flag; exclude from post-release-age analysis", "removed": 0},
+    {"issue": "Unparseable Steam owner range", "before": int(steam_clean["owners_midpoint"].isna().sum()),
+     "action": "Keep raw range; derived proxy left missing", "removed": 0},
+    {"issue": "Steam missing developer/publisher", "before": int(steam_clean[["developer", "publisher"]].isna().sum().sum()),
+     "action": "Retain as unknown; do not fabricate categories", "removed": 0},
+])
+print("Console rows before/after:", rows_before, len(console_clean))
+print("Steam rows before/after:", len(steam_df), len(steam_clean))
+display(cleaning_report)
+assert not console_clean.duplicated(["platform", "chart_date", "title_id"]).any()
+assert console_clean["percentage"].between(0, 100, inclusive="right").all()
+
+
+# #### **Cleaning**
+# **Missing data** - No imputation performed on core console variables. The 2189 missing release date fields will be excluded from correlation/analysis involving age. Similarly, very few missing values exist within the developer and publisher fields in the Steam dataset, so these will be left as missing. Note that missing != “unknown publisher.” The proportion of positive reviews in games with 0 reviews is undefined, and so these will also be left as missing.
+# 
+# **Duplicate Data** - Duplicates may occur based on natural keys. Within the data provided, no duplicate core console keys or Steam application IDs exist. Code has been included to avoid accidental duplication. Similar strings in game names do not cause two entries with similar names to be merged.
+# 
+# **Outliers** - Heavy tails exist in activity % data due to the nature of the project. High ranked/active games are desired so these will not be removed. However, 676 negative values exist in release ages. These will be excluded from analysis concerning release age and launch, but will be present in the raw chart. Ranks and percentages have been checked for validity, rather than Winsorised.
+# 
+# **Type conversions** - Chart and release dates converted to datetime format. Ranks, players and activity % converted into integer/float types. The start and end of the range of Steam owners are converted into numerical values. Reviews converted into positive fractions. Log transformations represent different features in analysis. Missing release dates and incomplete RAWG data can be seen.
+
+# ### 3. Machine Learning Plan
+# 
+# - **Binary Classification Problem** - Given a video game observed on a week on date t, predict whether it will be in the top 100 on the same platform on the next appropriate week. We wish to predict ranking class. For labelling, we can only label data for games that were observed on both weeks. If the game is not observed in the second archive, we do not know what the label should be. This means that our data may be skewed towards games which remain in the top 100, and this should be stated. Ensure that the data spans exactly one week. For example, 15th Nov to 20th Nov would not be an appropriate one week span.
+# 
+# - **Feature Engineering** - Current_rank, activity_percent, users_sampled, platform, appropriate release age, previously observed ranks/activity percentages and changes in trend. Where release age features are missing, metadata was uncertain. Where pre_release_flag is true, do not include release age features in models specific to launch. Do not include data from subsequent rows, subsequent week rank/users, future data from steam, or monthly data from PlayStation. Do not include title_id as a numerical feature. Only include RAWG genre information where it is verified and known by date t.
+# 
+# - **Processing** - Construct a feature set of platform, date and title_id. For each platform and title_id, lag the target by exactly one week. Only label data with known labels. Sort data in chronological order. Split data into training data and validation/test data rather than randomly. Impute, scale and encode features using only training data in scikit-learn Pipelines/ColumnTransformers. One hot encode platform and genre. Include a baseline feature. Compare logistic regression with random forest. Perform forward-chaining validation. Consider class imbalance.
+# 
+# - **Model Evaluation** - Report precision, recall, f1, balanced accuracy, confusion matrix and PR AUC for predicting whether a game is in top 100. Report these metrics for each platform and compare with baseline. Where there is class imbalance, ROC AUC may be included as well as PR AUC. Consider trade-off between false positives and negatives for publishers. Do not report test accuracy until after training. Do not suggest that models have been implemented.
+# 
+# - **Potential Issues / Solutions** - Biased sampling and varying panel sizes. Consider within-platform and track denominator values. Many titles with low activity. Class imbalance. Mitigate using PR AUC, stratified metrics. Try class weighting (only on training data). Overlapping windows. Chronological split, and lagged appropriately. Missing or edition-specific release dates. Include flags. Do not guess missing data. Incomplete follow-up data, biased sampling. Data with unknown target excluded. State coverage. Drifting data sources. Date-specific holdout. Short time period since GTA-VI. Descriptive analysis only. Cannot make robust predictions for GTA-VI retention.
+
+# ### 4. Prior feedback and updates
+# - Warm: Positive feedback on the GTA topic and readable code; kept both strengths.
+# - Cool: Chose seven-day console activity percentage as the main popularity metric, clarified dataset joins, and added a clearer title and source links.
+# - Hard: Removed the outdated video_games.csv, incorporated API/HTML sources alongside CSV, and used GTA V as the released comparison for GTA VI.
+# - Code: The reported Steam header and Backloggd index issues concerned earlier files. The current Steam columns were checked; Backloggd is not used.
+
 # ## Resources and References
 # - Rockstar Games: [GTA VI official site](https://www.rockstargames.com/VI) and [November 19, 2026 release announcement](https://www.rockstargames.com/newswire/article/ak3ak31a49a221/grand-theft-auto-vi-is-now-set-to-launch-november-19-2026).
 # - olonadtrolo: [Xbox and PlayStation Console Activity Charts, methodology and CSV archive](https://github.com/olonadtrolo/charts).
@@ -686,7 +1064,7 @@ print("Steam title candidates with RAWG metadata:", steam_rawg_candidates["rawg_
 # - Microsoft: [US Microsoft Store Most Played](https://www.microsoft.com/en-us/store/most-popular/games/xbox).
 # - Sony: [August](https://blog.playstation.com/2026/09/04/playstation-store-august-2026s-top-downloads/), [September](https://blog.playstation.com/2026/10/22/playstation-store-september-2026s-top-downloads/), [October](https://blog.playstation.com/2026/11/04/playstation-store-october-2026s-top-downloads/) 2026 charts.
 
-# In[16]:
+# In[26]:
 
 
 # ⚠️ Make sure you run this cell at the end of your notebook before every submission!
