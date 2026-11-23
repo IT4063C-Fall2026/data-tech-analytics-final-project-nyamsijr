@@ -62,7 +62,7 @@
 
 # ### Setup
 
-# In[1]:
+# In[ ]:
 
 
 from pathlib import Path
@@ -116,7 +116,7 @@ def normalize_title(value):
     return re.sub(r"[^\w]+", " ", value).strip() or pd.NA
 
 
-# In[2]:
+# In[ ]:
 
 
 def timestamp():
@@ -146,7 +146,7 @@ def fetch_html(url):
 
 # ### Source 1: Xbox and PlayStation activity charts
 
-# In[3]:
+# In[ ]:
 
 
 platforms = {"Xbox": ("xbox", "data_xbox.csv"),
@@ -186,7 +186,7 @@ console_charts.head()
 
 # ### Source 2: Historical Steam Store Games CSV
 
-# In[4]:
+# In[ ]:
 
 
 steam_url = "https://raw.githubusercontent.com/genlikan/SteamAnalysis/main/Steam/steam.csv"
@@ -203,7 +203,7 @@ steam_df.head()
 
 # ### Source 3: Steam Web API (JSON)
 
-# In[5]:
+# In[ ]:
 
 
 comparison_ids = [271590, 12210, 292030, 489830, 377160, 105600,
@@ -238,7 +238,7 @@ steam_players.head()
 
 # ### Source 4: SteamSpy API
 
-# In[6]:
+# In[ ]:
 
 
 spy_columns = ["appid", "spy_name", "spy_owners", "spy_positive", "spy_negative",
@@ -275,7 +275,7 @@ steamspy_df.head()
 
 # ### Source 5: Official Xbox Most Played chart
 
-# In[7]:
+# In[ ]:
 
 
 # Source 5 — official US Xbox Most Played rankings (no API key needed)
@@ -444,7 +444,7 @@ print(xbox_official[["rank", "title", "source_url"]].head(10).to_string(index=Fa
 
 # ### Source 6: PlayStation Store monthly download charts
 
-# In[8]:
+# In[ ]:
 
 
 ps_urls = {
@@ -512,7 +512,7 @@ ps_downloads.head()
 
 # ### Source 7: RAWG game metadata (API key needed)
 
-# In[9]:
+# In[ ]:
 
 
 rawg_key = os.getenv("RAWG_API_KEY")
@@ -563,7 +563,7 @@ print("Exact-name searches attempted up to:", len(rawg_titles))
 
 # ### Import verification
 
-# In[10]:
+# In[ ]:
 
 
 source_status = pd.DataFrame([
@@ -596,7 +596,7 @@ import_errors.head(20)
 # 
 # Final comparisons will be made between official rankings on Xbox, and historical player activity. After checking editions, download data from Playstation will be grouped by region, generation and month. Data from Steam will be merged using appid. Genre, ratings and release dates from RAWG will be added so that cross platform comparisons can be made. As popularity is measured differently in each source, popularity (ownership, downloads, player activity and rankings) will be kept separate. Only data available at the time of observation will be used in historical predictions.
 
-# In[11]:
+# In[ ]:
 
 
 # Join each console chart to its own platform catalog and remove ambiguous catalog IDs.
@@ -623,7 +623,7 @@ console_data["title_key"] = console_data["title"].map(normalize_title)
 console_data.head()
 
 
-# In[12]:
+# In[ ]:
 
 
 # Title match candidates for later verification.
@@ -647,7 +647,7 @@ print("Steam match candidates:", len(steam_match_candidates))
 console_match_candidates.head()
 
 
-# In[13]:
+# In[ ]:
 
 
 # Outer merge retains modern/current Steam titles absent in the 2019 snapshot.
@@ -662,7 +662,7 @@ comparison_df[["appid", "name", "owners", "spy_owners", "current_players"]].head
 
 # ### Candidate matches for external sources
 
-# In[14]:
+# In[ ]:
 
 
 xbox_match_candidates = xbox_official.assign(title_key=xbox_official["title"].map(normalize_title)).merge(
@@ -687,7 +687,7 @@ print("Steam title candidates with RAWG metadata:", steam_rawg_candidates["rawg_
 # 
 # #### 1.1 Source coverage, statistical summaries, and initial issues
 
-# In[15]:
+# In[ ]:
 
 
 import numpy as np
@@ -756,7 +756,7 @@ display(eda_console[["platform", "chart_date", "title_id", "rank", "players",
 # 
 # Within the joined data, 2189 rows are missing valid release dates (454 for Xbox, 1735 for Playstation). This means that trend analysis can be conducted on these rows, but it will not be possible to carry out analysis on how old the titles were at launch. 676 observations have negative values for days since release (-ve values in column days_since_release) (282 for Xbox, 394 for Playstation). This indicates inconsistencies in meta-data, or listing/playing the game before launch, or anomalies from particular sources. It cannot be assumed that these observations are pre-launch gameplay. For example, titles such as Grand Theft Auto VI are present on Xbox in the data before the release date listed. These should be noted and removed from the data when considering ages of titles at launch. Within the downloaded files, there are no missing rank, sampled player numbers, or percentage of players. Similarly, there are no invalid percentages or negative player numbers. This was checked as shown above.
 
-# In[16]:
+# In[ ]:
 
 
 # Diagnose outliers and monotonic feature relationships without removing popular games.
@@ -789,7 +789,7 @@ display(pd.DataFrame(association_rows).round(3))
 # 
 # Using the 1.5IQR method, many data points are identified as outliers in the upper tail of the data (10,729 from Xbox, 10,175 from PlayStation). However, this does not indicate any erroneous data since the upper tails have been formed by popular games. These outliers are therefore noted, but not removed. Within each platform there is a strong negative relationship between rank and sample % (rS ~ -0.98) as rank is based on popularity. There is also strong positive correlation between sample % and player count (r ~ +0.99). This is not an independent causal relationship. A weak positive relationship exists between sample % and release age (Xbox r ~ +0.12, PlayStation r ~ +0.09). Therefore, the assumption that newer games will be more popular is not entirely valid. As this data set was obtained through repeated observations, it is impossible to determine the precise effect of release age on popularity from only this information.
 
-# In[17]:
+# In[ ]:
 
 
 # Steam historical dataset is a different population and a different time period.
@@ -822,7 +822,7 @@ display(eda_steam[["price", "owner_midpoint", "positive_review_share",
 
 # #### 1.2 Visualization 1 — Distribution of sampled console activity
 
-# In[18]:
+# In[ ]:
 
 
 distribution_data = eda_console.loc[eda_console["percentage"].gt(0),
@@ -841,7 +841,7 @@ plt.show()
 
 # #### 1.3 Visualization 2 — Matched popular titles on the last snapshot
 
-# In[19]:
+# In[ ]:
 
 
 last_date = eda_console["chart_date"].max()
@@ -870,7 +870,7 @@ print("Matched exact normalized names in the last observation:", len(shared_keys
 
 # #### 1.4 Visualization 3 — GTA V versus GTA VI over time
 
-# In[20]:
+# In[ ]:
 
 
 gta_names = ["Grand Theft Auto V", "Grand Theft Auto VI"]
@@ -903,7 +903,7 @@ display(latest_console.loc[latest_console["title"].isin(gta_names),
 
 # #### 1.5 Visualization 4 — Historical PC correlations
 
-# In[21]:
+# In[ ]:
 
 
 steam_features = ["log10_owner_midpoint", "price", "positive_review_share",
@@ -920,7 +920,7 @@ display(steam_corr.round(3))
 
 # #### 1.6 Visualization 5 — Steam store price and ownership-proxy scatter
 
-# In[22]:
+# In[ ]:
 
 
 steam_scatter = eda_steam.dropna(subset=["price", "log10_owner_midpoint"])
@@ -946,7 +946,7 @@ print("Full-data Steam Spearman(price, log10 owner midpoint):",
 
 # ### 2. Data cleaning and transformation
 
-# In[23]:
+# In[ ]:
 
 
 # Clean console observations without treating missing metadata as no popularity.
@@ -1042,15 +1042,278 @@ assert console_clean["percentage"].between(0, 100, inclusive="right").all()
 # 
 # - **Processing** - Construct a feature set of platform, date and title_id. For each platform and title_id, lag the target by exactly one week. Only label data with known labels. Sort data in chronological order. Split data into training data and validation/test data rather than randomly. Impute, scale and encode features using only training data in scikit-learn Pipelines/ColumnTransformers. One hot encode platform and genre. Include a baseline feature. Compare logistic regression with random forest. Perform forward-chaining validation. Consider class imbalance.
 # 
-# - **Model Evaluation** - Report precision, recall, f1, balanced accuracy, confusion matrix and PR AUC for predicting whether a game is in top 100. Report these metrics for each platform and compare with baseline. Where there is class imbalance, ROC AUC may be included as well as PR AUC. Consider trade-off between false positives and negatives for publishers. Do not report test accuracy until after training. Do not suggest that models have been implemented.
+# - **Model Evaluation** - Report precision, recall, f1, balanced accuracy, confusion matrix and PR AUC for predicting whether a game is in top 100. Report these metrics for each platform and compare with baseline. Where there is class imbalance, ROC AUC may be included as well as PR AUC. Consider trade-off between false positives and negatives for publishers.
 # 
-# - **Potential Issues / Solutions** - Biased sampling and varying panel sizes. Consider within-platform and track denominator values. Many titles with low activity. Class imbalance. Mitigate using PR AUC, stratified metrics. Try class weighting (only on training data). Overlapping windows. Chronological split, and lagged appropriately. Missing or edition-specific release dates. Include flags. Do not guess missing data. Incomplete follow-up data, biased sampling. Data with unknown target excluded. State coverage. Drifting data sources. Date-specific holdout. Short time period since GTA-VI. Descriptive analysis only. Cannot make robust predictions for GTA-VI retention.
+# - **Potential Issues / Solutions** - Biased sampling and varying panel sizes. Consider within-platform and track denominator values. Many titles with low activity. Class imbalance. Mitigate using PR AUC, stratified metrics. Try class weighting. Overlapping windows. Chronological split, and lagged appropriately. Missing or edition-specific release dates. Include flags. Do not guess missing data. Incomplete follow-up data, biased sampling. Data with unknown target excluded. State coverage. Drifting data sources. Date-specific holdout. Short time period since GTA-VI. Descriptive analysis only. Cannot make robust predictions for GTA-VI retention.
+
+# ### 3.1 Machine Learning Implementation
+# 
+# - **Implementation**: Given data on a given date (t), for each game, predict whether the game will be ranked within the top 100 on the same platform for the next week. For clarity, we are predicting a category of game rank, rather than player numbers or actual sales.
+# - **Unit of Analysis**: Platform, title_id (not included as a feature) and weekly chart date. Titles on Xbox and PlayStation were not merged, even if titles were ambiguous.
+# - **Outcome Variable**: Outcome variable is ‘next_week_rank <= 100’. Only games which had data on the next week were considered, meaning that missing data is not considered a negative outcome. There is no outcome data for the November 20th snapshot, as it is only 5 days after November 15th.
+# - **Predictor Variables**: Current rank/activity, prior week rank/activity (if available), recent change, platform played on, valid age of release and quality flags on the release date. Future ranks were not used. Current/future SteamSpy snapshots and unverified metadata were also not used.
+# - **Evaluation**: Data was split in time. Imputing, encoding and scaling was performed only on training data. Models compared were Dummy, persistence and logistic regression and random forests. Metrics shown include PR AUC score, F1 score, precision, recall, balanced accuracy, plus confusion matrices. Overall metrics and metrics per platform are displayed.
+
+# #### 3.2 Prepare labels and historical features
+
+# In[ ]:
+
+
+from sklearn.base import clone
+from sklearn.compose import ColumnTransformer
+from sklearn.dummy import DummyClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    average_precision_score, balanced_accuracy_score, confusion_matrix,
+    f1_score, precision_score, recall_score, PrecisionRecallDisplay,
+    ConfusionMatrixDisplay,
+)
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+# Checkpoint 2's validated weekly activity records; work on a fresh copy.
+weekly = console_clean.sort_values(
+    ['platform', 'title_id', 'chart_date']
+).copy()
+assert not weekly.duplicated(['platform', 'title_id', 'chart_date']).any()
+
+per_game = weekly.groupby(['platform', 'title_id'], sort=False)
+weekly['following_date'] = per_game['chart_date'].shift(-1)
+weekly['following_rank'] = per_game['rank'].shift(-1)
+weekly['preceding_date'] = per_game['chart_date'].shift(1)
+weekly['previous_rank'] = per_game['rank'].shift(1)
+weekly['previous_percentage'] = per_game['percentage'].shift(1)
+
+prior_is_week = weekly['chart_date'].sub(weekly['preceding_date']).eq(pd.Timedelta(days=7))
+weekly.loc[~prior_is_week, ['previous_rank', 'previous_percentage']] = np.nan
+weekly['rank_change'] = weekly['rank'] - weekly['previous_rank']
+weekly['percentage_change'] = weekly['percentage'] - weekly['previous_percentage']
+weekly['log10_percentage'] = np.log10(weekly['percentage'].where(weekly['percentage'].gt(0)))
+weekly['log1p_players'] = np.log1p(weekly['players'].clip(lower=0))
+weekly['prev_log10_percentage'] = np.log10(
+    weekly['previous_percentage'].where(weekly['previous_percentage'].gt(0))
+)
+weekly['pre_release_flag'] = weekly['pre_release_flag'].astype(float)
+weekly['unusable_release_date'] = weekly['unusable_release_date'].astype(float)
+
+# Only +7-day follow-ups have known classification labels.
+weekly['observed_in_seven_days'] = weekly['following_date'].sub(
+    weekly['chart_date']).eq(pd.Timedelta(days=7))
+ml_observations = weekly.loc[weekly['observed_in_seven_days']].copy()
+ml_observations['next_week_top_100'] = ml_observations['following_rank'].le(100).astype(int)
+assert len(ml_observations) > 0
+assert ml_observations['next_week_top_100'].nunique() == 2
+assert ml_observations['following_date'].sub(ml_observations['chart_date']).eq(pd.Timedelta(days=7)).all()
+
+numeric_features = [
+    'rank', 'log10_percentage', 'log1p_players', 'previous_rank',
+    'prev_log10_percentage', 'rank_change', 'percentage_change',
+    'valid_release_age_days', 'pre_release_flag', 'unusable_release_date',
+]
+categorical_features = ['platform']
+feature_names = numeric_features + categorical_features
+target = 'next_week_top_100'
+print('Prediction features (no title ID, dates, or future information):', feature_names)
+print('Exact seven-day labelled observations:', f'{len(ml_observations):,}')
+
+
+# In[ ]:
+
+
+# Quantify censoring: games eligible for a complete week-end comparison
+# versus games actually found in the next week's sample.
+available_snapshots = set(zip(weekly['platform'], weekly['chart_date']))
+weekly['full_week_snapshot_exists'] = [
+    (platform, day + pd.Timedelta(days=7)) in available_snapshots
+    for platform, day in zip(weekly['platform'], weekly['chart_date'])
+]
+possible_rows = weekly.loc[weekly['full_week_snapshot_exists']]
+followup_coverage = len(ml_observations) / len(possible_rows)
+print('Observations with a next calendar-week snapshot:', f'{len(possible_rows):,}')
+print('Observations also present in that snapshot:', f'{len(ml_observations):,}')
+print('Observed-follow-up coverage:', f'{followup_coverage:.1%}')
+print('Unlabelled among eligible (NOT negatives):', f'{len(possible_rows) - len(ml_observations):,}')
+print('Positive-class prevalence in labelled subset:', f'{ml_observations[target].mean():.2%}')
+print('Missing optional prior-week rank:', f'{ml_observations["previous_rank"].isna().mean():.1%}')
+print('Missing or unusable release age:', f'{ml_observations["valid_release_age_days"].isna().mean():.1%}')
+print('Exact-7-day anchor dates:', ml_observations['chart_date'].min().date(),
+      'through', ml_observations['chart_date'].max().date())
+display(ml_observations.groupby(['platform', 'chart_date'])[target]
+        .agg(observations='size', top_100='sum', prevalence='mean').round(4))
+
+fig, ax = plt.subplots(figsize=(8, 3.3))
+class_freq = ml_observations[target].value_counts().sort_index()
+ax.bar(['Not top 100 next week', 'Top 100 next week'], class_freq.values,
+       color=['#457b9d', '#ed9b40'])
+ax.set_ylabel('Known follow-up observations')
+ax.set_title('Target imbalance among labelled games')
+for x, n in enumerate(class_freq.values):
+    ax.text(x, n, f'{n:,}', ha='center', va='bottom')
+plt.tight_layout()
+plt.show()
+
+
+# #### 3.3 Prepare chronological train, validation, and untouched test sets
+
+# In[ ]:
+
+
+train_cutoff = pd.Timestamp('2026-10-11')
+val_cutoff = pd.Timestamp('2026-10-25')
+training = ml_observations.loc[ml_observations['chart_date'].le(train_cutoff)].copy()
+validation = ml_observations.loc[
+    ml_observations['chart_date'].gt(train_cutoff)
+    & ml_observations['chart_date'].le(val_cutoff)
+].copy()
+testing = ml_observations.loc[ml_observations['chart_date'].gt(val_cutoff)].copy()
+
+assert all(len(frame) for frame in (training, validation, testing))
+assert training['chart_date'].max() < validation['chart_date'].min()
+assert validation['chart_date'].max() < testing['chart_date'].min()
+assert len(training) + len(validation) + len(testing) == len(ml_observations)
+assert all(frame[target].nunique() == 2 for frame in (training, validation, testing))
+
+X_train, y_train = training[feature_names], training[target]
+X_val, y_val = validation[feature_names], validation[target]
+X_test, y_test = testing[feature_names], testing[target]
+
+split_report = pd.DataFrame([
+    {'split': name, 'first_anchor': frame['chart_date'].min().date().isoformat(),
+     'last_anchor': frame['chart_date'].max().date().isoformat(),
+     'rows': len(frame), 'positive_count': frame[target].sum(),
+     'positive_pct': 100 * frame[target].mean()}
+    for name, frame in [('Train', training), ('Validation', validation), ('Test', testing)]
+])
+display(split_report.round(2))
+
+
+# #### 3.4 Process features using scikit-learn pipeline
+
+# In[ ]:
+
+
+numeric_pipeline = Pipeline([
+    ('imputer', SimpleImputer(strategy='median', add_indicator=True)),
+    ('scaler', StandardScaler()),
+])
+categorical_pipeline = Pipeline([
+    ('imputer', SimpleImputer(strategy='most_frequent')),
+    ('one_hot', OneHotEncoder(handle_unknown='ignore', sparse_output=False)),
+])
+preprocessor = ColumnTransformer([
+    ('numeric', numeric_pipeline, numeric_features),
+    ('categorical', categorical_pipeline, categorical_features),
+], remainder='drop', sparse_threshold=0)
+
+classifiers = {
+    'Majority class': DummyClassifier(strategy='prior'),
+    'Logistic regression': LogisticRegression(
+        class_weight='balanced', max_iter=1500, random_state=42
+    ),
+    'Random forest': RandomForestClassifier(
+        n_estimators=120, min_samples_leaf=8, max_depth=16,
+        max_features='sqrt', class_weight='balanced_subsample',
+        random_state=42, n_jobs=-1,
+    ),
+}
+model_pipelines = {
+    label: Pipeline([('preprocess', clone(preprocessor)), ('model', estimator)])
+    for label, estimator in classifiers.items()
+}
+for name, pipeline in model_pipelines.items():
+    pipeline.fit(X_train, y_train)
+    print(f'Fitted {name} on {len(y_train):,} earlier observations')
+
+# Evaluation uses a fixed 0.50 decision threshold for comparable classification metrics.
+def evaluate_predictions(y_true, scores, predicted):
+    return {
+        'PR_AUC': average_precision_score(y_true, scores),
+        'precision': precision_score(y_true, predicted, zero_division=0),
+        'recall': recall_score(y_true, predicted, zero_division=0),
+        'F1': f1_score(y_true, predicted, zero_division=0),
+        'balanced_accuracy': balanced_accuracy_score(y_true, predicted),
+        'false_positives': int(confusion_matrix(y_true, predicted, labels=[0, 1])[0, 1]),
+        'false_negatives': int(confusion_matrix(y_true, predicted, labels=[0, 1])[1, 0]),
+    }
+
+def all_model_scores(x, current_ranks):
+    result = {}
+    for name, pipeline in model_pipelines.items():
+        probability = pipeline.predict_proba(x)[:, 1]
+        predicted = (probability >= 0.50).astype(int)
+        result[name] = (probability, predicted)
+    persistence = current_ranks.le(100).astype(int).to_numpy()
+    result['Current top-100 persists'] = (persistence.astype(float), persistence)
+    return result
+
+validation_scores = all_model_scores(X_val, validation['rank'])
+val_metrics = pd.DataFrame([
+    {'model': name, **evaluate_predictions(y_val, score, predicted)}
+    for name, (score, predicted) in validation_scores.items()
+]).sort_values('PR_AUC', ascending=False)
+print('VALIDATION comparison: model selection uses this period only')
+display(val_metrics.round(4))
+learned_model_names = ['Logistic regression', 'Random forest']
+best_ml_name = max(learned_model_names, key=lambda name:
+                   val_metrics.set_index('model').loc[name, 'PR_AUC'])
+print('Selected learned model by validation PR-AUC:', best_ml_name)
+
+
+# #### 3.5 Analyze and evaluate
+
+# In[ ]:
+
+
+test_scores = all_model_scores(X_test, testing['rank'])
+test_metrics = pd.DataFrame([
+    {'model': name, **evaluate_predictions(y_test, score, predicted)}
+    for name, (score, predicted) in test_scores.items()
+]).sort_values('PR_AUC', ascending=False)
+print('HELD-OUT TEST: November 1 and November 8 anchors')
+display(test_metrics.round(4))
+
+selected_probability, selected_prediction = test_scores[best_ml_name]
+print(f'Selected learned model: {best_ml_name}')
+print('Selected model confusion matrix: rows = actual [not top-100, top-100],'
+      'columns = predicted [not top-100, top-100]')
+print(confusion_matrix(y_test, selected_prediction, labels=[0, 1]))
+
+per_platform_rows = []
+for platform in sorted(testing['platform'].unique()):
+    mask = testing['platform'].eq(platform).to_numpy()
+    for model_name in [best_ml_name, 'Current top-100 persists']:
+        prob, pred = test_scores[model_name]
+        per_platform_rows.append({
+            'platform': platform, 'model': model_name, 'n': int(mask.sum()),
+            'positives': int(y_test.to_numpy()[mask].sum()),
+            **evaluate_predictions(y_test.to_numpy()[mask], prob[mask], pred[mask])
+        })
+per_platform_metrics = pd.DataFrame(per_platform_rows)
+print('Per-platform comparison (same test observations):')
+display(per_platform_metrics.round(4))
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 4.4))
+for name, (prob, _) in test_scores.items():
+    PrecisionRecallDisplay.from_predictions(
+        y_test, prob, ax=axes[0], name=name,
+        plot_chance_level=False,
+    )
+axes[0].set_title('Held-out test precision–recall curves')
+axes[0].legend(loc='best', fontsize=8)
+ConfusionMatrixDisplay.from_predictions(
+    y_test, selected_prediction, labels=[0, 1],
+    display_labels=['Outside top 100', 'Top 100'],
+    cmap='Blues', colorbar=False, ax=axes[1],
+)
+axes[1].set_title(f'{best_ml_name}: test confusion matrix')
+plt.tight_layout()
+plt.show()
+
 
 # ### 4. Prior feedback and updates
-# - Warm: Positive feedback on the GTA topic and readable code; kept both strengths.
-# - Cool: Chose seven-day console activity percentage as the main popularity metric, clarified dataset joins, and added a clearer title and source links.
-# - Hard: Removed the outdated video_games.csv, incorporated API/HTML sources alongside CSV, and used GTA V as the released comparison for GTA VI.
-# - Code: The reported Steam header and Backloggd index issues concerned earlier files. The current Steam columns were checked; Backloggd is not used.
+# - None given.
 
 # ## Resources and References
 # - Rockstar Games: [GTA VI official site](https://www.rockstargames.com/VI) and [November 19, 2026 release announcement](https://www.rockstargames.com/newswire/article/ak3ak31a49a221/grand-theft-auto-vi-is-now-set-to-launch-november-19-2026).
@@ -1064,7 +1327,7 @@ assert console_clean["percentage"].between(0, 100, inclusive="right").all()
 # - Microsoft: [US Microsoft Store Most Played](https://www.microsoft.com/en-us/store/most-popular/games/xbox).
 # - Sony: [August](https://blog.playstation.com/2026/09/04/playstation-store-august-2026s-top-downloads/), [September](https://blog.playstation.com/2026/10/22/playstation-store-september-2026s-top-downloads/), [October](https://blog.playstation.com/2026/11/04/playstation-store-october-2026s-top-downloads/) 2026 charts.
 
-# In[26]:
+# In[ ]:
 
 
 # ⚠️ Make sure you run this cell at the end of your notebook before every submission!
